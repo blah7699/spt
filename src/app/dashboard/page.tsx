@@ -5,6 +5,16 @@ import { signOut } from "@/app/login/actions";
 import { getUserMetrics } from "@/lib/metrics";
 import { centsToMoney } from "@/lib/format";
 
+function isMissingTableError(err: unknown) {
+  if (!err || typeof err !== "object") return false;
+  const anyErr = err as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof anyErr.code === "string" ? anyErr.code : "";
+  const msgParts = [anyErr.message, anyErr.details, anyErr.hint]
+    .filter((v): v is string => typeof v === "string")
+    .join(" ");
+  return code === "PGRST205" || /could not find the table/i.test(msgParts);
+}
+
 function KpiCard(props: { label: string; value: string; hint?: string }) {
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
@@ -30,7 +40,7 @@ export default async function DashboardPage() {
 
   const metrics = await getUserMetrics();
 
-  const { data: latestOrder } = await supabase
+  const { data: latestOrder, error: latestOrderError } = await supabase
     .from("orders")
     .select("currency")
     .eq("user_id", auth.user.id)
@@ -38,6 +48,10 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (latestOrderError && !isMissingTableError(latestOrderError)) {
+    throw new Error(latestOrderError.message);
+  }
 
   const currency = latestOrder?.currency ?? "USD";
   const revenue = metrics ? centsToMoney(metrics.revenueCents, currency) : `${currency} 0.00`;
